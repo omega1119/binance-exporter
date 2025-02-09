@@ -1,0 +1,15 @@
+services:
+  binance_fetcher:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: binance_data_fetcher
+    restart: unless-stopped
+    environment:
+      - OVERWRITE_MODE=True
+      - RESTART_MODE=True
+    volumes:
+      - ../app/data:/app/data
+      - ../app/logs:/app/logs
+      - ../app/last_run.txt:/app/last_run.txt
+      - ../app/config/myconfig.py:/app/config/myconfig.py

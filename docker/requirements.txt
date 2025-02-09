@@ -1,0 +1,6 @@
+python-binance
+tqdm
+pyarrow
+polars
+pytest
+mock
