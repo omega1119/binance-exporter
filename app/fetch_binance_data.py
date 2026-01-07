@@ -1,20 +1,31 @@
 from binance.client import Client
-from config import myconfig
 from datetime import datetime, timedelta
 import os
 import csv
 import time
 from tqdm import tqdm
-import pyarrow as pa
 import pyarrow.parquet as pq
 import polars as pl
 
-# Read API keys
-API_KEY = myconfig.BINANCE_API_KEY
-API_SECRET = myconfig.BINANCE_API_SECRET
+try:
+    from config import myconfig  # type: ignore
+except Exception:  # pragma: no cover
+    myconfig = None
+
+# Read API keys (config file takes precedence; fall back to env vars)
+API_KEY = (
+    getattr(myconfig, "BINANCE_API_KEY", None)
+    if myconfig is not None
+    else None
+) or os.getenv("BINANCE_API_KEY", "")
+API_SECRET = (
+    getattr(myconfig, "BINANCE_API_SECRET", None)
+    if myconfig is not None
+    else None
+) or os.getenv("BINANCE_API_SECRET", "")
 
 # Initialize Binance client
-client = Client(API_KEY, API_SECRET)
+client = Client(api_key=API_KEY, api_secret=API_SECRET)
 
 # Get the absolute path of the script directory
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -23,10 +34,10 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 LAST_RUN_FILE = os.path.join(SCRIPT_DIR, "last_run.txt")
 
 # Overwrite mode: True = overwrites previous CSV and Parquet files, False = appends new data
-OVERWRITE_MODE = True  
+OVERWRITE_MODE = os.getenv("OVERWRITE_MODE", "True").strip().lower() in {"1", "true", "yes"}
 
 # Restart mode: True = skips pairs that already have CSV/Parquet files, False = fetches all pairs
-RESTART_MODE = True  
+RESTART_MODE = os.getenv("RESTART_MODE", "True").strip().lower() in {"1", "true", "yes"}
 
 # Parameterized Kline interval (Set this to any valid Binance interval) 1s, 1m, 3m, 5m, 15m, 30m
 KLINE_INTERVAL = Client.KLINE_INTERVAL_30MINUTE  # Change as needed
@@ -36,8 +47,8 @@ KLINE_INTERVAL = Client.KLINE_INTERVAL_30MINUTE  # Change as needed
 # TARGET_PAIRS = None
 TARGET_PAIRS = ["BTCUSDT"]
 
-def get_time_ms_to_str(time):
-    return str(int(time.timestamp() * 1000))
+def get_time_ms_to_str(dt: datetime) -> str:
+    return str(int(dt.timestamp() * 1000))
 
 # Function to read last recorded end_time from file
 def get_last_end_time():
@@ -46,7 +57,7 @@ def get_last_end_time():
             last_end_time_ms = f.read().strip()
             if last_end_time_ms.isdigit():
                 return datetime.utcfromtimestamp(int(last_end_time_ms) / 1000)
-    return datetime.now()  # Default to current time if no record exists
+    return datetime.utcnow()  # Default to current time if no record exists
 
 # Function to fetch historical data for a trading pair
 def fetch_historical_data(pair, start_time, end_time, interval=KLINE_INTERVAL):
@@ -63,7 +74,8 @@ def fetch_historical_data(pair, start_time, end_time, interval=KLINE_INTERVAL):
         klines = client.get_historical_klines(
             symbol=pair,
             interval=interval,
-            start_str=start_time_ms
+            start_str=start_time_ms,
+            end_str=end_time_ms,
         )
 
         if not klines:
@@ -134,7 +146,7 @@ def main():
     end_time = get_last_end_time()
     start_time = end_time - timedelta(days=1)
 
-    print(f"⏳ Fetching data from {start_time} to {end_time} (Interval: {KLINE_INTERVAL})")
+    print(f"Fetching data from {start_time} to {end_time} (Interval: {KLINE_INTERVAL})")
 
     # Define the folder structure based on the selected Kline interval
     data_folder = os.path.join(SCRIPT_DIR, f"data/{get_time_ms_to_str(end_time)}")
@@ -164,7 +176,7 @@ def main():
 
         # Skip if RESTART_MODE is enabled and the files already exist
         if RESTART_MODE and (csv_file in existing_files or parquet_file in existing_files):
-            print(f"⏩ Skipping {pair}, data already exists.")
+            print(f"Skipping {pair}, data already exists.")
             continue
 
         print(f"Fetching historical data for {pair}...")
@@ -178,12 +190,12 @@ def main():
             # Save to Parquet
             save_to_parquet(pair, klines, interval_folder)
 
-            print(f"✔ Data for {pair} saved to {interval_folder}/{pair}.csv and {interval_folder}/{pair}.parquet")
+            print(f"Data for {pair} saved to {interval_folder}/{pair}.csv and {interval_folder}/{pair}.parquet")
         except Exception as e:
-            print(f"❌ Failed to fetch data for {pair}: {e}")
+            print(f"Failed to fetch data for {pair}: {e}")
 
     # Save the latest end_time after fetching data
-    save_end_time(datetime.now())
+    save_end_time(datetime.utcnow())
 
     # Load a Parquet file into Polars DataFrame for verification
     if trading_pairs:
@@ -192,7 +204,7 @@ def main():
 
         if os.path.exists(parquet_path):
             df = pl.read_parquet(parquet_path)
-            print(f"📊 Sample data from {test_pair} Parquet file:")
+            print(f"Sample data from {test_pair} Parquet file:")
             print(df.head())
 
 # Add this at the end of your script to call main() when the script is executed

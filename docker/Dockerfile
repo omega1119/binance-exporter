@@ -5,13 +5,13 @@ FROM python:3.9-slim
 WORKDIR /app
 
 # Copy requirements first (best practice for Docker caching)
-COPY ../docker/requirements.txt .
+COPY docker/requirements.txt .
 
 # Install dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy the entire app directory into the container
-COPY ../app /app
+COPY app /app
 
 # Set environment variables
 ENV OVERWRITE_MODE=True
